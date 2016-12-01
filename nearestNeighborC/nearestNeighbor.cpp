@@ -353,9 +353,9 @@ static PyMethodDef NN_methods[] = { {"getNToNDistances", py_getNToNDistances, ME
 /* for the module "mandelbrot" the initialization function is */
 /* "initmandelbrot".  The PyMODINIT_FUNC helps with portability */
 /* across operating systems and between C and C++ compilers */
-PyMODINIT_FUNC initlibNNPythonIntf(void) {
+PyMODINIT_FUNC initlibNearestNeighborC(void) {
 	import_array()
 		/* There have been several InitModule functions over time */
-	Py_InitModule3("libNNPythonIntf", NN_methods, ORF__doc__);
+	Py_InitModule3("libNearestNeighborC", NN_methods, ORF__doc__);
 
 }

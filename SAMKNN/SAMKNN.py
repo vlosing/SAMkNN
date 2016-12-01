@@ -1,7 +1,7 @@
 __author__ = 'vlosing'
 from BaseClassifier import BaseClassifier
 import numpy as np
-import libNNPythonIntf
+import libNearestNeighborC
 from sklearn.cluster import KMeans
 from collections import deque
 import logging
@@ -58,7 +58,7 @@ class SAMKNN(BaseClassifier):
 
     @staticmethod
     def getDistances(sample, samples):
-        return libNNPythonIntf.get1ToNDistances(sample, samples)
+        return libNearestNeighborC.get1ToNDistances(sample, samples)
 
     def clusterDown(self, samples, labels):
         logging.info('cluster Down %d' % self.trainStepCount)
@@ -131,9 +131,9 @@ class SAMKNN(BaseClassifier):
                 samplesShortened = np.delete(self._STMSamples, i, 0)
                 labelsShortened = np.delete(self._STMLabels, i, 0)
                 distancesSTM = SAMKNN.getDistances(self._STMSamples[i,:], samplesShortened)
-                nnIndicesSTM = libNNPythonIntf.nArgMin(self.n_neighbors, distancesSTM)[0]
+                nnIndicesSTM = libNearestNeighborC.nArgMin(self.n_neighbors, distancesSTM)[0]
                 distancesLTM = SAMKNN.getDistances(self._STMSamples[i,:], samplesCl)
-                nnIndicesLTM = libNNPythonIntf.nArgMin(min(len(distancesLTM), self.n_neighbors), distancesLTM)[0]
+                nnIndicesLTM = libNearestNeighborC.nArgMin(min(len(distancesLTM), self.n_neighbors), distancesLTM)[0]
                 correctIndicesSTM = nnIndicesSTM[labelsShortened[nnIndicesSTM] == self._STMLabels[i]]
                 if len(correctIndicesSTM) > 0:
                     distThreshold = np.max(distancesSTM[correctIndicesSTM])
@@ -255,15 +255,15 @@ class SAMKNN(BaseClassifier):
 
     @staticmethod
     def getMajLabels(distances, labels, numNeighbours):
-        nnIndices = libNNPythonIntf.nArgMin(numNeighbours, distances)
-        predLabels = libNNPythonIntf.mostCommon(labels[nnIndices])
+        nnIndices = libNearestNeighborC.nArgMin(numNeighbours, distances)
+        predLabels = libNearestNeighborC.mostCommon(labels[nnIndices])
         return predLabels
 
     @staticmethod
     def getDistanceWeightedLabels(distances, labels, numNeighbours):
-        nnIndices = libNNPythonIntf.nArgMin(numNeighbours, distances)
+        nnIndices = libNearestNeighborC.nArgMin(numNeighbours, distances)
         sqrtDistances = np.sqrt(distances[nnIndices])
-        predLabels = libNNPythonIntf.getLinearWeightedLabels(labels[nnIndices], sqrtDistances)
+        predLabels = libNearestNeighborC.getLinearWeightedLabels(labels[nnIndices], sqrtDistances)
         return predLabels
 
     def getComplexity(self):
