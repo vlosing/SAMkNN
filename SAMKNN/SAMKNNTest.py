@@ -5,7 +5,6 @@ from SAMKNN import SAMKNN
 from sklearn.metrics import accuracy_score
 from ClassifierVisualizer import ClassifierVisualizer
 from ClassifierListener import DummyClassifierListener
-from Base import Paths
 
 def run(X, y, hyperParams, visualize=False):
     if visualize:

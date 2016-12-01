@@ -1,7 +1,6 @@
 __author__ = 'vlosing'
-from ClassifierCommon.BaseClassifier import BaseClassifier
+from BaseClassifier import BaseClassifier
 import numpy as np
-import math
 import libNNPythonIntf
 from sklearn.cluster import KMeans
 from collections import deque

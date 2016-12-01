@@ -331,7 +331,7 @@ PyDoc_STRVAR(py_getLinearWeightedLabels__doc__,
 		"name, data 2D-arr. Returns label result matrix");
 
 /* The module doc string */
-PyDoc_STRVAR(ORF__doc__, "Mandelbrot point evalutation kernel");
+PyDoc_STRVAR(ORF__doc__, "Nearest neighbor python interface");
 
 
 
@@ -356,7 +356,6 @@ static PyMethodDef NN_methods[] = { {"getNToNDistances", py_getNToNDistances, ME
 PyMODINIT_FUNC initlibNNPythonIntf(void) {
 	import_array()
 		/* There have been several InitModule functions over time */
-	PyObject* myclass = Py_InitModule3("libNNPythonIntf", NN_methods,
-			ORF__doc__);
+	Py_InitModule3("libNNPythonIntf", NN_methods, ORF__doc__);
 
 }

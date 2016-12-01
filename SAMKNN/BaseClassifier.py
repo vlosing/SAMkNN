@@ -4,7 +4,6 @@ from sklearn.metrics import log_loss
 import logging
 import numpy as np
 import pandas as pd
-from Base.MatlabEngine import MatlabEngine
 from datetime import datetime
 class BaseClassifier(object):
     def __init__(self):

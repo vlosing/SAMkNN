@@ -6,13 +6,11 @@ module1 = Extension('libNNPythonIntf',
                     libraries = [],
                     library_dirs = [],
 		    extra_compile_args = ['-O3'],
-                    sources = ['intf.cpp'])
+                    sources = ['nearestNeighbor.cpp'])
 
 setup (name = 'PackageName',
        version = '1.0',
        description = 'This is a demo package',
-       author = 'Martin v. Loewis',
-       author_email = 'martin@v.loewis.de',
-       url = 'http://docs.python.org/extending/building',
-       long_description = '''This is really just a demo package.''',
+       author = 'Viktor Losing',
+       author_email = 'vlosing@techfak.uni-bielefeld.de',
        ext_modules = [module1])
