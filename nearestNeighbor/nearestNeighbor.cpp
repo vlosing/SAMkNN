@@ -1,5 +1,5 @@
 #include "Python.h"
-#include "arrayobject.h"
+#include "numpy/arrayobject.h"
 #include <vector>
 #include <iostream>
 #include <iterator>
