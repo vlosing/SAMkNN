@@ -3,7 +3,6 @@ from ClassifierListener import ClassifierListener
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-from Base import Paths
 import time
 def getClassColors():
     return np.array(['#0000FF', '#FF0000', '#00CC01', '#2F2F2F', '#8900CC', '#0099CC',
