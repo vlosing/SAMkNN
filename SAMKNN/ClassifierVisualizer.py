@@ -5,6 +5,9 @@ import numpy as np
 import os
 import time
 def getClassColors():
+    """
+    Returns various different colors.
+    """
     return np.array(['#0000FF', '#FF0000', '#00CC01', '#2F2F2F', '#8900CC', '#0099CC',
                      '#ACE600', '#D9007E', '#FFCCCC', '#5E6600', '#FFFF00', '#999999',
                      '#FF6000', '#00FF00', '#FF00FF', '#00FFFF', '#FFFF0F', '#F0CC01',
@@ -15,6 +18,9 @@ def getClassColors():
                      '#9BC6ED', '#915200'])
 
 class ClassifierVisualizer(ClassifierListener):
+    """
+    Classifier visualizer implemented as listener.
+    """
     DRAW_STM = True
     DRAW_LTM = True
     DRAW_FIXED_SLIDING_WINDOW = True
@@ -60,6 +66,7 @@ class ClassifierVisualizer(ClassifierListener):
                                         'Fixed Sliding Window size %d' % ClassifierVisualizer.FIXED_SLIDING_WINDOW_SIZE, getClassColors(), XRange=[self.minX, self.maxX], YRange=[self.minY, self.maxY])
         self.fig.canvas.draw()
         plt.pause(0.001)
+
     def onNewTrainStep(self, classifier, classificationResult, trainStep):
         if trainStep % (self.drawInterval) == 0:
             self.draw(classifier, trainStep)
