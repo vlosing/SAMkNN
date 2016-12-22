@@ -14,5 +14,6 @@ setup (name = 'nearestNeighbor',
        description = 'Calculation for nearest neighbor',
        author = 'Viktor Losing',
        author_email = 'vlosing@techfak.uni-bielefeld.de',
+       install_requires=["numpy"],
        ext_modules = [nnExtension])
 
