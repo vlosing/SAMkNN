@@ -16,7 +16,7 @@ def run(X, y, hyperParams, visualize=False):
     else:
         visualizer = DummyClassifierListener()
     classifier = SAMKNN(n_neighbors=hyperParams['nNeighbours'], maxSize=hyperParams['maxSize'], knnWeights=hyperParams['knnWeights'],
-                        STMSizeAdaption=hyperParams['STMSizeAdaption'], useLTM=hyperParams['useLTM'], listener=[visualizer])
+                        recalculateSTMError=hyperParams['recalculateSTMError'], useLTM=hyperParams['useLTM'], listener=[visualizer])
 
     logging.info('applying model on dataset')
     predictedLabels, complexity, complexityNumParameterMetric = classifier.trainOnline(X, y, np.unique(y))
@@ -25,7 +25,7 @@ def run(X, y, hyperParams, visualize=False):
 
 if __name__ == '__main__':
     logging.basicConfig(format='%(message)s', level=logging.INFO)
-    hyperParams ={'maxSize': 1000, 'nNeighbours': 5, 'knnWeights': 'distance', 'STMSizeAdaption': 'maxACCApprox', 'useLTM': True}
+    hyperParams ={'maxSize': 1000, 'nNeighbours': 5, 'knnWeights': 'distance', 'recalculateSTMError': False, 'useLTM': True}
     #hyperParams = {'windowSize': 5000, 'nNeighbours': 5, 'knnWeights': 'distance', 'STMSizeAdaption': None,
     #               'useLTM': False}
 

@@ -22,17 +22,17 @@ class SAMKNN(BaseClassifier):
     LTMSizeProportion: float, optional (default=0.4)
         Proportion of the overall instances that may be used for the LTM. This is only relevant when the maximum number(maxSize)
         of stored instances is reached.
-    STMSizeAdaption : string, optional (default='maxACCApprox')
-        Type of STM size adaption.
-        'maxACC' calculates the Interleaved test-train error exactly for each of the evaluated window sizes, which means it has often to be recalculated from the scratch.
-        'maxACCApprox' approximates the Interleaved test-train error and is significantly faster than the exact version.
+    RecalculateSTMError : boolean, optional (default=False)
+        "If true than the error rate of the STM for size adaption is always recalculated to be precise(Costly operation).
+        Otherwise, an incremental approximation is used."
         If set to None, the STM is not adapted at all. When additionally useLTM=false, this algorithm is simply a kNN with fixed sliding window size.
     minSTMSize : int, optional (default=50)
         Minimum STM size which is evaluated during the STM size adaption.
     useLTM : boolean, optional (default=True)
         Specifies whether the LTM should be used at all.
     """
-    def __init__(self, n_neighbors=5, knnWeights='distance', maxSize=5000, LTMSizeProportion = 0.4, minSTMSize=50, STMSizeAdaption='maxACCApprox', useLTM=True, listener=[]):
+    def __init__(self, n_neighbors=5, knnWeights='distance', maxSize=5000, LTMSizeProportion = 0.4, minSTMSize=50, recalculateSTMError=False, useLTM=True, listener=[]):
+
         self.n_neighbors = n_neighbors
         self._STMSamples = None
         self._STMLabels = np.empty(shape=(0), dtype=np.int32)
@@ -42,13 +42,13 @@ class SAMKNN(BaseClassifier):
         self.maxSTMSize = maxSize - self.maxLTMSize
         self.minSTMSize = minSTMSize
 
-        if STMSizeAdaption is not None:
+        self.recalculateSTMError = recalculateSTMError
+        if recalculateSTMError is not None:
             self.STMDistances = np.zeros(shape=(maxSize + 1, maxSize + 1))
         if knnWeights == 'distance':
             self.getLabelsFct = SAMKNN.getDistanceWeightedLabel
         elif knnWeights == 'uniform':
             self.getLabelsFct = SAMKNN.getMajLabel
-        self.STMSizeAdaption = STMSizeAdaption
         self.useLTM = useLTM
         if useLTM:
             self.predictFct = self.predictByAllMemories
@@ -81,10 +81,20 @@ class SAMKNN(BaseClassifier):
     def getInfos(self):
         return ''
 
+    def predict(self, samples):
+        if self._STMSamples is None:
+            return np.zeros(shape=samples.shape[0]).astype(np.int32)
+        else:
+            predictedLabels = []
+            for sample in samples:
+                distancesSTM = SAMKNN.getDistances(sample, self._STMSamples)
+                predictedLabels.append(self.predictFct(sample, -1, distancesSTM))
+            return np.array(predictedLabels)
+
     @staticmethod
     def getDistances(sample, samples):
         """Calculate distances from sample to all samples."""
-        return libNearestNeighbor.get1ToNDistances(sample, samples)
+        return np.sqrt(libNearestNeighbor.get1ToNDistances(sample, samples))
 
     def clusterDown(self, samples, labels):
         """Performs classwise kMeans++ clustering for given samples with corresponding labels. The number of samples is halved per class."""
@@ -94,7 +104,7 @@ class SAMKNN(BaseClassifier):
         newLabels = np.empty(shape=(0), dtype=np.int32)
         for label in uniqueLabels:
             tmpSamples = samples[labels == label]
-            newLength = max(tmpSamples.shape[0]/2, 1)
+            newLength = int(max(tmpSamples.shape[0]/2, 1))
             clustering = KMeans(n_clusters=newLength, n_init=1, random_state=0)
             clustering.fit(tmpSamples)
             newSamples = np.vstack([newSamples, clustering.cluster_centers_])
@@ -108,12 +118,13 @@ class SAMKNN(BaseClassifier):
             STMShortened = True
             self._STMSamples = np.delete(self._STMSamples, 0, 0)
             self._STMLabels = np.delete(self._STMLabels, 0, 0)
-            self.STMDistances[:len(self._STMLabels), :len(self._STMLabels)] = self.STMDistances[1:len(self._STMLabels) + 1, 1:len(self._STMLabels) + 1]
+            if self.recalculateSTMError is not None:
+                self.STMDistances[:len(self._STMLabels), :len(self._STMLabels)] = self.STMDistances[1:len(self._STMLabels) + 1, 1:len(self._STMLabels) + 1]
 
-            if self.STMSizeAdaption == 'maxACCApprox':
-                if self.interLeavedPredHistories.has_key(0):
+            if not self.recalculateSTMError:
+                if 0 in self.interLeavedPredHistories:
                     self.interLeavedPredHistories[0].pop(0)
-                for key in self.interLeavedPredHistories.keys():
+                for key in list(self.interLeavedPredHistories.keys()):
                     if key > 0:
                         if key == 1:
                             self.interLeavedPredHistories.pop(0, None)
@@ -134,7 +145,7 @@ class SAMKNN(BaseClassifier):
                 if len(self._STMLabels) + len(self._LTMLabels) > self.maxSTMSize + self.maxLTMSize:
                     STMShortened = True
                     numShifts = int(self.maxLTMSize - len(self._LTMLabels) + 1)
-                    shiftRange = xrange(numShifts)
+                    shiftRange = range(numShifts)
                     self._LTMSamples = np.vstack([self._LTMSamples, self._STMSamples[:numShifts, :]])
                     self._LTMLabels = np.append(self._LTMLabels, self._STMLabels[:numShifts])
                     self._LTMSamples, self._LTMLabels = self.clusterDown(self._LTMSamples, self._LTMLabels)
@@ -150,7 +161,7 @@ class SAMKNN(BaseClassifier):
 
     def cleanSamples(self, samplesCl, labelsCl, onlyLast=False):
         """Removes distance-based all instances from the input samples that contradict those in the STM."""
-        if len(self._STMLabels) > self.n_neighbors and samplesCl.shape[0] > 0:
+        if self._STMLabels.shape[0] > self.n_neighbors and samplesCl.shape[0] > 0:
             if onlyLast:
                 loopRange = [len(self._STMLabels)-1]
             else:
@@ -173,10 +184,10 @@ class SAMKNN(BaseClassifier):
                     labelsCl = np.delete(labelsCl, wrongIndicesLTM[delIndices], 0)
         return samplesCl, labelsCl
 
-    def _partial_fit(self, sample, sampleLabel):
-        """Processes a new sample."""
-        distancesSTM = SAMKNN.getDistances(sample, self._STMSamples)
-        predictedLabel = self.predictFct(sample, sampleLabel, distancesSTM)
+    def singleFit(self, sample, sampleLabel, distancesSTM):
+        if self._STMSamples is None:
+            self._STMSamples = np.empty(shape=(0, sample.shape[0]))
+            self._LTMSamples = np.empty(shape=(0, sample.shape[0]))
 
         self.trainStepCount += 1
         self._STMSamples = np.vstack([self._STMSamples, sample])
@@ -186,16 +197,16 @@ class SAMKNN(BaseClassifier):
 
         self._LTMSamples, self._LTMLabels = self.cleanSamples(self._LTMSamples, self._LTMLabels, onlyLast=True)
 
-        if self.STMSizeAdaption is not None:
+        if self.recalculateSTMError is not None:
             if STMShortened:
                 distancesSTM = SAMKNN.getDistances(sample, self._STMSamples[:-1,:])
 
             self.STMDistances[len(self._STMLabels)-1,:len(self._STMLabels)-1] = distancesSTM
             oldWindowSize = len(self._STMLabels)
-            newWindowSize, self.interLeavedPredHistories = STMSizer.getNewSTMSize(self.STMSizeAdaption, self._STMLabels, self.n_neighbors, self.getLabelsFct, self.interLeavedPredHistories, self.STMDistances, self.minSTMSize)
+            newWindowSize, self.interLeavedPredHistories = STMSizer.getNewSTMSize(self.recalculateSTMError, self._STMLabels, self.n_neighbors, self.getLabelsFct, self.interLeavedPredHistories, self.STMDistances, self.minSTMSize)
 
             if newWindowSize < oldWindowSize:
-                delrange = xrange(oldWindowSize-newWindowSize)
+                delrange = range(oldWindowSize-newWindowSize)
                 oldSTMSamples = self._STMSamples[delrange, :]
                 oldSTMLabels = self._STMLabels[delrange]
                 self._STMSamples = np.delete(self._STMSamples, delrange, 0)
@@ -216,44 +227,52 @@ class SAMKNN(BaseClassifier):
         self.LTMSizes.append(len(self._LTMLabels))
         for listener in self.listener:
             listener.onNewTrainStep(self, False, self.trainStepCount)
+
+    def getSTMDistances(self, sample):
+        if self._STMSamples is not None:
+            return SAMKNN.getDistances(sample, self._STMSamples)
+        else:
+            return None
+
+
+    def _partial_fit(self, sample, sampleLabel):
+        """Processes a new sample."""
+        distancesSTM = SAMKNN.getDistances(sample, self._STMSamples)
+        predictedLabel = self.predictFct(sample, sampleLabel, distancesSTM)
+        self.singleFit(sample, sampleLabel, distancesSTM)
+
         return predictedLabel
 
     def predictByAllMemories(self, sample, label, distancesSTM):
         """Predicts the label of a given sample by using the STM, LTM and the CM, only used when useLTM=True."""
         predictedLabelLTM = 0
         predictedLabelSTM = 0
-        predictedLabelBoth = 0
+        predictedLabelCM = 0
         classifierChoice = 0
-        if len(self._STMLabels) == 0:
-            predictedLabel = predictedLabelSTM
-        else:
-            if len(self._STMLabels) < self.n_neighbors:
-                predictedLabelSTM = self.getLabelsFct(distancesSTM, self._STMLabels, len(self._STMLabels))[0]
-                predictedLabel = predictedLabelSTM
-            else:
-                distancesLTM = SAMKNN.getDistances(sample, self._LTMSamples)
-                predictedLabelSTM = self.getLabelsFct(distancesSTM, self._STMLabels, self.n_neighbors)[0]
-                predictedLabelBoth = self.getLabelsFct(np.append(distancesSTM, distancesLTM), np.append(self._STMLabels, self._LTMLabels), self.n_neighbors)[0]
+        predictedLabel = 0
+        if len(self._STMLabels) > 0:
+            predictedLabelSTM = self.getLabelsFct(distancesSTM, self._STMLabels, min(len(self._STMLabels), self.n_neighbors))[0]
+            distancesLTM = SAMKNN.getDistances(sample, self._LTMSamples)
+            predictedLabelCM = self.getLabelsFct(np.append(distancesSTM, distancesLTM), np.append(self._STMLabels, self._LTMLabels), min(len(self._STMLabels) + len(self._LTMLabels), self.n_neighbors))[0]
+            if len(self._LTMLabels) > 0:
+                predictedLabelLTM = self.getLabelsFct(distancesLTM, self._LTMLabels, min(len(self._LTMLabels), self.n_neighbors))[0]
 
-                if len(self._LTMLabels) >= self.n_neighbors:
-                    predictedLabelLTM = self.getLabelsFct(distancesLTM, self._LTMLabels, self.n_neighbors)[0]
-                    correctLTM = np.sum(self.LTMPredHistory)
-                    correctSTM = np.sum(self.STMPredHistory)
-                    correctBoth = np.sum(self.CMPredHistory)
-                    labels = [predictedLabelSTM, predictedLabelLTM, predictedLabelBoth]
-                    classifierChoice = np.argmax([correctSTM, correctLTM, correctBoth])
-                    predictedLabel = labels[classifierChoice]
-                else:
-                    predictedLabel = predictedLabelSTM
+            labels = [predictedLabelSTM, predictedLabelLTM, predictedLabelCM]
+            correctSTM = np.sum(self.STMPredHistory)
+            correctLTM = np.sum(self.LTMPredHistory)
+            correctCM = np.sum(self.CMPredHistory)
+            classifierChoice = np.argmax([correctSTM, correctLTM, correctCM])
+            predictedLabel = labels[classifierChoice]
+        
 
         self.classifierChoice.append(classifierChoice)
-        self.CMPredHistory.append(predictedLabelBoth == label)
-        self.numCMCorrect += predictedLabelBoth == label
+        self.CMPredHistory.append(predictedLabelCM == label)
+        self.numCMCorrect += predictedLabelCM == label
         self.STMPredHistory.append(predictedLabelSTM == label)
         self.numSTMCorrect += predictedLabelSTM == label
         self.LTMPredHistory.append(predictedLabelLTM == label)
         self.numLTMCorrect += predictedLabelLTM == label
-        self.numPossibleCorrectPredictions += label in [predictedLabelSTM, predictedLabelBoth, predictedLabelLTM]
+        self.numPossibleCorrectPredictions += label in [predictedLabelSTM, predictedLabelCM, predictedLabelLTM]
         self.numCorrectPredictions += predictedLabel == label
         return predictedLabel
 
@@ -266,14 +285,15 @@ class SAMKNN(BaseClassifier):
         return predictedLabel
 
     def partial_fit(self, samples, labels, classes):
+        _labels = labels.astype(np.int32)
         """Processes a new sample."""
         if self._STMSamples is None:
             self._STMSamples = np.empty(shape=(0, samples.shape[1]))
             self._LTMSamples = np.empty(shape=(0, samples.shape[1]))
 
         predictedLabels = []
-        for i in range(len(samples)):
-            predictedLabels.append(self._partial_fit(samples[i, :], labels[i]))
+        for i in range(samples.shape[0]):
+            predictedLabels.append(self._partial_fit(samples[i, :], _labels[i]))
         return predictedLabels
 
     def alternateFitPredict(self, samples, labels, classes):
@@ -282,10 +302,11 @@ class SAMKNN(BaseClassifier):
             self._STMSamples = np.empty(shape=(0, samples.shape[1]))
             self._LTMSamples = np.empty(shape=(0, samples.shape[1]))
         predictedTrainLabels = []
+        _labels = labels.astype(np.int32)
         for i in range(len(labels)):
             if (i+1)%(len(labels)/20) == 0:
-                print '%d%%' % int(np.round((i+1.)/len(labels)*100, 0))
-            predictedTrainLabels.append(self._partial_fit(samples[i, :], labels[i]))
+                logging.info('%d%%' % int(np.round((i+1.)/len(labels)*100, 0)))
+            predictedTrainLabels.append(self._partial_fit(samples[i, :], _labels[i]))
         return predictedTrainLabels
 
     @staticmethod
@@ -299,8 +320,7 @@ class SAMKNN(BaseClassifier):
     def getDistanceWeightedLabel(distances, labels, numNeighbours):
         """Returns the the distance weighted label of the k nearest neighbors."""
         nnIndices = libNearestNeighbor.nArgMin(numNeighbours, distances)
-        sqrtDistances = np.sqrt(distances[nnIndices])
-        predLabels = libNearestNeighbor.getLinearWeightedLabels(labels[nnIndices], sqrtDistances)
+        predLabels = libNearestNeighbor.getLinearWeightedLabels(labels[nnIndices], distances[nnIndices])
         return predLabels
 
     def getComplexity(self):
@@ -335,45 +355,43 @@ class SAMKNN(BaseClassifier):
 class STMSizer(object):
     """Utility class to adapt the size of the sliding window of the STM."""
     @staticmethod
-    def getNewSTMSize(adaptionStrategy, labels, nNeighbours, getLabelsFct, predictionHistories, distancesSTM, minSTMSize):
+    def getNewSTMSize(recalculateSTMError, labels, nNeighbours, getLabelsFct, predictionHistories, distancesSTM, minSTMSize):
         """Returns the new STM size."""
-        if adaptionStrategy is None:
+        if recalculateSTMError is None:
             return len(labels), predictionHistories
-        elif adaptionStrategy == 'maxACC':
-            return STMSizer.getMaxAccWindowSize(labels, nNeighbours, getLabelsFct, predictionHistories, distancesSTM, minSize=minSTMSize)
-        elif adaptionStrategy == 'maxACCApprox':
-            return STMSizer.getMaxAccApproxWindowSize(labels, nNeighbours, getLabelsFct, predictionHistories, distancesSTM, minSize=minSTMSize)
+        elif recalculateSTMError:
+            return STMSizer.getMinErrorRateWindowSize(labels, nNeighbours, getLabelsFct, predictionHistories, distancesSTM, minSize=minSTMSize)
         else:
-            raise Exception('unknown driftStrategy')
+            return STMSizer.getMinErrorRateWindowSizeIncremental(labels, nNeighbours, getLabelsFct, predictionHistories, distancesSTM, minSize=minSTMSize)
 
     @staticmethod
-    def accScore(predLabels, labels):
-        """Calculates the achieved accuracy."""
-        return np.sum(predLabels == labels)/float(len(predLabels))
+    def errorRate(predLabels, labels):
+        """Calculates the achieved error rate."""
+        return 1 - np.sum(predLabels == labels)/float(len(predLabels))
 
     @staticmethod
-    def getInterleavedTestTrainAcc(labels, nNeighbours, getLabelsFct, distancesSTM):
-        """Calculates the interleaved test train accuracy from the scratch."""
+    def getInterleavedTestTrainErrorRate(labels, nNeighbours, getLabelsFct, distancesSTM):
+        """Calculates the interleaved test train error rate from the scratch."""
         predLabels = []
         for i in range(nNeighbours, len(labels)):
             distances = distancesSTM[i, :i]
             predLabels.append(getLabelsFct(distances, labels[:i], nNeighbours)[0])
-        return STMSizer.accScore(predLabels[:], labels[nNeighbours:]), (predLabels == labels[nNeighbours:]).tolist()
+        return STMSizer.errorRate(predLabels[:], labels[nNeighbours:]), (predLabels == labels[nNeighbours:]).tolist()
 
     @staticmethod
-    def getInterleavedTestTrainAccPredHistory(labels, nNeighbours, getLabelsFct, predictionHistory, distancesSTM):
-        """Calculates the interleaved test train accuracy incrementally by using the previous predictions."""
+    def getIncrementalInterleavedTestTrainErrorRate(labels, nNeighbours, getLabelsFct, predictionHistory, distancesSTM):
+        """Calculates the interleaved test train error rate incrementally by using the previous predictions."""
         for i in range(len(predictionHistory) + nNeighbours, len(labels)):
             distances = distancesSTM[i, :i]
             label = getLabelsFct(distances, labels[:i], nNeighbours)[0]
             predictionHistory.append(label == labels[i])
-        return np.sum(predictionHistory)/float(len(predictionHistory)), predictionHistory
+        return 1 - np.sum(predictionHistory)/float(len(predictionHistory)), predictionHistory
 
     @staticmethod
     def adaptHistories(numberOfDeletions, predictionHistories):
         """Removes predictions of the largest window size and shifts the remaining ones accordingly."""
         for i in range(numberOfDeletions):
-            sortedKeys = np.sort(predictionHistories.keys())
+            sortedKeys = np.sort(list(predictionHistories.keys()))
             predictionHistories.pop(sortedKeys[0], None)
             delta = sortedKeys[1]
             for j in range(1, len(sortedKeys)):
@@ -381,7 +399,7 @@ class STMSizer(object):
         return predictionHistories
 
     @staticmethod
-    def getMaxAccWindowSize(labels, nNeighbours, getLabelsFct, predictionHistories, distancesSTM, minSize=50):
+    def getMinErrorRateWindowSize(labels, nNeighbours, getLabelsFct, predictionHistories, distancesSTM, minSize=50):
         """Returns the window size with the minimum Interleaved test-train error(exact calculation)."""
         numSamples = len(labels)
         if numSamples < 2 * minSize:
@@ -391,30 +409,30 @@ class STMSizer(object):
             while numSamplesRange[-1]/2 >= minSize:
                 numSamplesRange.append(numSamplesRange[-1]/2)
 
-            accuracies = []
-            for key in predictionHistories.keys():
+            errorRates = []
+            for key in list(predictionHistories.keys()):
                 if key not in (numSamples - np.array(numSamplesRange)):
                     predictionHistories.pop(key, None)
 
             for numSamplesIt in numSamplesRange:
-                idx = numSamples - numSamplesIt
-                if predictionHistories.has_key(idx):
-                    accuracy, predHistory = STMSizer.getInterleavedTestTrainAccPredHistory(labels[idx:], nNeighbours, getLabelsFct, predictionHistories[idx], distancesSTM[idx:, idx:])
+                idx = int(numSamples - numSamplesIt)
+                if idx in predictionHistories:
+                    errorRate, predHistory = STMSizer.getIncrementalInterleavedTestTrainErrorRate(labels[idx:], nNeighbours, getLabelsFct, predictionHistories[idx], distancesSTM[idx:, idx:])
                 else:
-                    accuracy, predHistory = STMSizer.getInterleavedTestTrainAcc(labels[idx:], nNeighbours, getLabelsFct, distancesSTM[idx:, idx:])
+                    errorRate, predHistory = STMSizer.getInterleavedTestTrainErrorRate(labels[idx:], nNeighbours, getLabelsFct, distancesSTM[idx:, idx:])
                 predictionHistories[idx] = predHistory
-                accuracies.append(accuracy)
-            accuracies = np.round(accuracies, decimals=4)
-            bestNumTrainIdx = np.argmax(accuracies)
-            windowSize = numSamplesRange[bestNumTrainIdx]
+                errorRates.append(errorRate)
 
+            errorRates = np.round(errorRates, decimals=4)
+            bestNumTrainIdx = np.argmin(errorRates)
+            windowSize = numSamplesRange[bestNumTrainIdx]
             if windowSize < numSamples:
                 predictionHistories = STMSizer.adaptHistories(bestNumTrainIdx, predictionHistories)
             return int(windowSize), predictionHistories
 
     @staticmethod
-    def getMaxAccApproxWindowSize(labels, nNeighbours, getLabelsFct, predictionHistories, distancesSTM, minSize=50):
-        """Returns the window size with the minimum Interleaved test-train error(using an approximation)."""
+    def getMinErrorRateWindowSizeIncremental(labels, nNeighbours, getLabelsFct, predictionHistories, distancesSTM, minSize=50):
+        """Returns the window size with the minimum Interleaved test-train error(using an incremental approximation)."""
         numSamples = len(labels)
         if numSamples < 2 * minSize:
             return numSamples, predictionHistories
@@ -422,31 +440,31 @@ class STMSizer(object):
             numSamplesRange = [numSamples]
             while numSamplesRange[-1]/2 >= minSize:
                 numSamplesRange.append(numSamplesRange[-1]/2)
-            accuracies = []
+            errorRates = []
             for numSamplesIt in numSamplesRange:
-                idx = numSamples - numSamplesIt
-                if predictionHistories.has_key(idx):
-                    accuracy, predHistory = STMSizer.getInterleavedTestTrainAccPredHistory(labels[idx:], nNeighbours, getLabelsFct, predictionHistories[idx], distancesSTM[idx:, idx:])
-                elif predictionHistories.has_key(idx-1):
+                idx = int(numSamples - numSamplesIt)
+                if idx in predictionHistories:
+                    errorRate, predHistory = STMSizer.getIncrementalInterleavedTestTrainErrorRate(labels[idx:], nNeighbours, getLabelsFct, predictionHistories[idx], distancesSTM[idx:, idx:])
+                elif idx-1 in predictionHistories:
                     predHistory = predictionHistories[idx-1]
                     predictionHistories.pop(idx-1, None)
                     predHistory.pop(0)
-                    accuracy, predHistory = STMSizer.getInterleavedTestTrainAccPredHistory(labels[idx:], nNeighbours, getLabelsFct, predHistory, distancesSTM[idx:, idx:])
+                    errorRate, predHistory = STMSizer.getIncrementalInterleavedTestTrainErrorRate(labels[idx:], nNeighbours, getLabelsFct, predHistory, distancesSTM[idx:, idx:])
                 else:
-                    accuracy, predHistory = STMSizer.getInterleavedTestTrainAcc(labels[idx:], nNeighbours, getLabelsFct, distancesSTM[idx:, idx:])
+                    errorRate, predHistory = STMSizer.getInterleavedTestTrainErrorRate(labels[idx:], nNeighbours, getLabelsFct, distancesSTM[idx:, idx:])
                 predictionHistories[idx] = predHistory
-                accuracies.append(accuracy)
-            accuracies = np.round(accuracies, decimals=4)
-            bestNumTrainIdx = np.argmax(accuracies)
+                errorRates.append(errorRate)
+            errorRates = np.round(errorRates, decimals=4)
+            bestNumTrainIdx = np.argmin(errorRates)
             if bestNumTrainIdx > 0:
-                moreAccurateIndices = np.where(accuracies > accuracies[0])[0]
+                moreAccurateIndices = np.where(errorRates < errorRates[0])[0]
                 for i in moreAccurateIndices:
-                    idx = numSamples - numSamplesRange[i]
-                    accuracy, predHistory = STMSizer.getInterleavedTestTrainAcc(labels[idx:], nNeighbours, getLabelsFct, distancesSTM[idx:, idx:])
+                    idx = int(numSamples - numSamplesRange[i])
+                    errorRate, predHistory = STMSizer.getInterleavedTestTrainErrorRate(labels[idx:], nNeighbours, getLabelsFct, distancesSTM[idx:, idx:])
                     predictionHistories[idx] = predHistory
-                    accuracies[i] = accuracy
-                accuracies = np.round(accuracies, decimals=4)
-                bestNumTrainIdx = np.argmax(accuracies)
+                    errorRates[i] = errorRate
+                errorRates = np.round(errorRates, decimals=4)
+                bestNumTrainIdx = np.argmin(errorRates)
             windowSize = numSamplesRange[bestNumTrainIdx]
 
             if windowSize < numSamples:

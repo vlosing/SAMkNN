@@ -48,6 +48,14 @@ class ClassifierVisualizer(ClassifierListener):
         if ClassifierVisualizer.DRAW_LTM:
             self.subplotLTM = self.fig.add_subplot(313, aspect='equal')
 
+        plt.tick_params(
+        axis='both',
+        which='both',
+        left='off',
+        right='off',
+        labelleft='off')
+
+
     def draw(self, classifier, trainStep):
         self.fig.suptitle('%s #instance %d' % (self.datasetName, trainStep), fontsize=20)
         if ClassifierVisualizer.DRAW_STM:
@@ -77,8 +85,5 @@ class ClassifierVisualizer(ClassifierListener):
             subplot.scatter(samples[:, 0], samples[:, 1], s=10, c=colors[labels.astype(int)],
                             edgecolor=colors[labels.astype(int)])
         subplot.set_title(title, fontsize=20)
-        subplot.get_axes().xaxis.set_ticks([])
         subplot.set_xlim([XRange[0], XRange[1]])
         subplot.set_ylim([YRange[0], YRange[1]])
-        subplot.get_axes().xaxis.set_ticks([])
-        subplot.get_axes().yaxis.set_ticks([])

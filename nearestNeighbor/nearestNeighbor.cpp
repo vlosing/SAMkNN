@@ -7,6 +7,11 @@
 #include <limits>
 #include <map>
 
+#define MOD_DEF(ob, name, doc, methods) \
+	  static struct PyModuleDef moduledef = { \
+		PyModuleDef_HEAD_INIT, name, doc, -1, methods, }; \
+	  ob = PyModule_Create(&moduledef);
+
 using namespace std;
 
 void nArgMin(const int &n, const double* values, int* indices, const int &numValues){
@@ -331,7 +336,7 @@ PyDoc_STRVAR(py_getLinearWeightedLabels__doc__,
 		"name, data 2D-arr. Returns label result matrix");
 
 /* The module doc string */
-PyDoc_STRVAR(ORF__doc__, "Nearest neighbor python interface");
+PyDoc_STRVAR(NN__doc__, "Nearest neighbor python interface");
 
 
 
@@ -348,14 +353,20 @@ static PyMethodDef NN_methods[] = { {"getNToNDistances", py_getNToNDistances, ME
 		{ NULL, NULL } /* sentinel */
 };
 
-/* When Python imports a C module named 'X' it loads the module */
-/* then looks for a method named "init"+X and calls it.  Hence */
-/* for the module "mandelbrot" the initialization function is */
-/* "initmandelbrot".  The PyMODINIT_FUNC helps with portability */
-/* across operating systems and between C and C++ compilers */
-PyMODINIT_FUNC initlibNearestNeighbor(void) {
-	import_array()
-		/* There have been several InitModule functions over time */
-	Py_InitModule3("libNearestNeighbor", NN_methods, ORF__doc__);
 
+static PyObject *
+moduleinit(void)
+{
+	import_array();
+    PyObject *m;
+    MOD_DEF(m, "libNearestNeighbor", NN__doc__, NN_methods)
+    if (m == NULL)
+        return NULL;
+    //taken from zopefoundation/zope.proxy
+  return m;
+}
+
+PyMODINIT_FUNC PyInit_libNearestNeighbor(void)
+{
+    return moduleinit();
 }
